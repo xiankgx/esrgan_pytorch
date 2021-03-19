@@ -31,7 +31,8 @@ class DenseResidualBlock(nn.Module):
         self.res_scale = res_scale
 
         def block(in_features, non_linearity=True):
-            layers = [nn.Conv2d(in_features, filters, 3, 1, 1, bias=True)]
+            layers = [nn.Conv2d(in_features, filters, 3, 1, 1,
+                                padding_mode="reflect")]
             if non_linearity:
                 layers += [nn.LeakyReLU()]
             return nn.Sequential(*layers)

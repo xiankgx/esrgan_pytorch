@@ -1,4 +1,5 @@
 import argparse
+import glob
 import os
 
 import numpy as np
@@ -13,7 +14,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-from datasets import ImageDataset, inv_normalize
+from datasets import (IMAGENET_MEAN, IMAGENET_STD, TANH_MEAN, TANH_STD,
+                      ImageDataset, inv_normalize, normalize)
 from models import Discriminator, FeatureExtractor, Generator
 
 if __name__ == "__main__":
@@ -35,15 +37,15 @@ if __name__ == "__main__":
 
     parser.add_argument("--hr_height",
                         type=int,
-                        default=192,
+                        default=128,
                         help="high res. image height")
     parser.add_argument("--hr_width",
                         type=int,
-                        default=192,
+                        default=128,
                         help="high res. image width")
     parser.add_argument("--residual_blocks",
                         type=int,
-                        default=32,
+                        default=23,
                         help="number of residual blocks in the generator")
 
     parser.add_argument("--n_epochs",
@@ -84,24 +86,24 @@ if __name__ == "__main__":
 
     parser.add_argument("--sample_interval",
                         type=int,
-                        default=2000,
+                        default=500,
                         help="interval between saving image samples")
     parser.add_argument("--checkpoint_interval",
                         type=int,
-                        default=2000,
+                        default=1000,
                         help="batch interval between model checkpoints")
 
     parser.add_argument("--warmup_batches",
                         type=int,
-                        default=3000,
+                        default=500,
                         help="number of batches for the pretrain stage")
     parser.add_argument("--lambda_adv",
                         type=float,
-                        default=5e-3,
+                        default=0.05,
                         help="adversarial loss weight")
     parser.add_argument("--lambda_pixel",
                         type=float,
-                        default=1e-2,
+                        default=1.0,
                         help="pixel-wise loss weight")
 
     opt = parser.parse_args()
@@ -118,7 +120,7 @@ if __name__ == "__main__":
     # Get models
 
     hr_shape = (opt.hr_height, opt.hr_width)
-    generator = Generator(3, filters=64,
+    generator = Generator(filters=64,
                           num_res_blocks=opt.residual_blocks) \
         .to(device).train()
     discriminator = Discriminator() \
@@ -174,8 +176,14 @@ if __name__ == "__main__":
 
     # Get data
 
+    additional_data = glob.glob("../datasets/places2/**/*.*", recursive=True)
+    additional_data_count = 500
+    additional_data = np.random.choice(additional_data, size=additional_data_count,
+                                       replace=len(additional_data) < additional_data_count).tolist()
+
     dataloader = DataLoader(
-        ImageDataset("../datasets/DIV2K", hr_shape=hr_shape),
+        ImageDataset("../datasets/DIV2K", hr_shape=hr_shape,
+                     extra_files=additional_data),
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=opt.n_cpu,
@@ -221,6 +229,8 @@ if __name__ == "__main__":
                     loss_pixel.backward()
                     optimizer_G_pretrain.step()
 
+                writer.add_scalar("lossG_pretrain/pixel", loss_pixel.item(),
+                                  global_steps)
                 tqdm.write(
                     "[%09d] [G pixel: %.4f]"
                     % (global_steps, loss_pixel.item())
@@ -233,16 +243,17 @@ if __name__ == "__main__":
                 pred_real = discriminator(imgs_hr)
                 pred_fake = discriminator(gen_hr)
 
-                # Adversarial loss (relativistic average GAN)
                 loss_GAN = criterion_GAN(pred_fake - pred_real.mean(0, keepdim=True),
                                          torch.ones_like(pred_fake))
 
-                # Content loss
-                gen_features = feature_extractor(gen_hr)
-                real_features = feature_extractor(imgs_hr)
+                gen_features = feature_extractor(
+                    normalize(inv_normalize(gen_hr, TANH_MEAN, TANH_STD),
+                              IMAGENET_MEAN, IMAGENET_STD))
+                real_features = feature_extractor(
+                    normalize(inv_normalize(imgs_hr, TANH_MEAN, TANH_STD),
+                              IMAGENET_MEAN, IMAGENET_STD))
                 loss_content = criterion_content(gen_features, real_features)
 
-                # Total generator loss
                 loss_G = loss_content \
                     + opt.lambda_adv * loss_GAN \
                     + opt.lambda_pixel * loss_pixel
@@ -264,7 +275,7 @@ if __name__ == "__main__":
                 pred_real = discriminator(imgs_hr)
                 pred_fake = discriminator(gen_hr.detach())
 
-                tqdm.write(f"pred_real.shape: {pred_real.shape}")
+                # tqdm.write(f"pred_real.shape: {pred_real.shape}")
 
                 loss_real = criterion_GAN(pred_real - pred_fake.mean(0, keepdim=True),
                                           torch.ones_like(pred_real))
@@ -315,11 +326,11 @@ if __name__ == "__main__":
 
             global_steps += 1
             if global_steps % opt.sample_interval == 0:
-                writer.add_images("gen_hr", inv_normalize(torch.clamp(gen_hr, -1, 1)),
+                writer.add_images("gen_hr", inv_normalize(torch.clamp(gen_hr, -1, 1), TANH_MEAN, TANH_STD),
                                   global_steps)
-                writer.add_images("imgs_lr", inv_normalize(F.interpolate(imgs_lr, scale_factor=4)),
+                writer.add_images("imgs_lr", inv_normalize(F.interpolate(imgs_lr, scale_factor=4), TANH_MEAN, TANH_STD),
                                   global_steps)
-                writer.add_images("imgs_hr", inv_normalize(imgs_hr),
+                writer.add_images("imgs_hr", inv_normalize(imgs_hr, TANH_MEAN, TANH_STD),
                                   global_steps)
 
             if global_steps % opt.checkpoint_interval == 0:
