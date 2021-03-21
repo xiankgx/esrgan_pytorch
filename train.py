@@ -7,11 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.utils import save_image
 from tqdm import tqdm
 
 from datasets import (IMAGENET_MEAN, IMAGENET_STD, TANH_MEAN, TANH_STD,
@@ -176,10 +174,19 @@ if __name__ == "__main__":
 
     # Get data
 
+    additional_data_count = 20000
     additional_data = glob.glob("../datasets/places2/**/*.*", recursive=True)
-    additional_data_count = 500
     additional_data = np.random.choice(additional_data, size=additional_data_count,
                                        replace=len(additional_data) < additional_data_count).tolist()
+    additional_data2 = glob.glob("../datasets/coco/train2017/**/*.*", recursive=True)
+    additional_data2 = np.random.choice(additional_data2, size=additional_data_count,
+                                       replace=len(additional_data2) < additional_data_count).tolist()
+    additional_data_count = 5000
+    additional_data3 = glob.glob("../datasets/text_documents/**/*.*", recursive=True)
+    additional_data3 = np.random.choice(additional_data3, size=additional_data_count,
+                                       replace=len(additional_data3) < additional_data_count).tolist()
+    additional_data += additional_data2 + additional_data3
+    print(f"additional_data count: {len(additional_data)}")
 
     dataloader = DataLoader(
         ImageDataset("../datasets/DIV2K", hr_shape=hr_shape,
@@ -212,15 +219,10 @@ if __name__ == "__main__":
             optimizer_G.zero_grad()
 
             with autocast(opt.mixed_precision):
-                # Generate a high resolution image from low resolution input
                 gen_hr = generator(imgs_lr)
-
-                # Measure pixel-wise loss against ground truth
                 loss_pixel = criterion_pixel(gen_hr, imgs_hr)
 
             if global_steps < opt.warmup_batches:
-                # Warm-up (pixel-wise loss only)
-
                 if opt.mixed_precision:
                     scaler.scale(loss_pixel).backward()
                     scaler.step(optimizer_G_pretrain)
