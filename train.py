@@ -45,6 +45,10 @@ if __name__ == "__main__":
                         type=int,
                         default=23,
                         help="number of residual blocks in the generator")
+    parser.add_argument("--num_upsample",
+                        type=int,
+                        default=2,
+                        help="num upsamples")
 
     parser.add_argument("--n_epochs",
                         type=int,
@@ -119,7 +123,8 @@ if __name__ == "__main__":
 
     hr_shape = (opt.hr_height, opt.hr_width)
     generator = Generator(filters=64,
-                          num_res_blocks=opt.residual_blocks) \
+                          num_res_blocks=opt.residual_blocks,
+                          num_upsample=opt.num_upsample) \
         .to(device).train()
     discriminator = Discriminator() \
         .to(device).train()
@@ -171,26 +176,29 @@ if __name__ == "__main__":
         print("Multi-GPU training")
         generator = nn.DataParallel(generator)
         discriminator = nn.DataParallel(discriminator)
+        feature_extractor = nn.DataParallel(feature_extractor)
 
     # Get data
 
-    additional_data_count = 20000
-    additional_data = glob.glob("../datasets/places2/**/*.*", recursive=True)
-    additional_data = np.random.choice(additional_data, size=additional_data_count,
-                                       replace=len(additional_data) < additional_data_count).tolist()
-    additional_data2 = glob.glob("../datasets/coco/train2017/**/*.*", recursive=True)
-    additional_data2 = np.random.choice(additional_data2, size=additional_data_count,
-                                       replace=len(additional_data2) < additional_data_count).tolist()
-    additional_data_count = 5000
-    additional_data3 = glob.glob("../datasets/text_documents/**/*.*", recursive=True)
-    additional_data3 = np.random.choice(additional_data3, size=additional_data_count,
-                                       replace=len(additional_data3) < additional_data_count).tolist()
-    additional_data += additional_data2 + additional_data3
-    print(f"additional_data count: {len(additional_data)}")
+    # additional_data_count = 20000
+    # additional_data = glob.glob("../datasets/places2/**/*.*", recursive=True)
+    # additional_data = np.random.choice(additional_data, size=additional_data_count,
+    #                                    replace=len(additional_data) < additional_data_count).tolist()
+    # additional_data2 = glob.glob("../datasets/coco/train2017/**/*.*", recursive=True)
+    # additional_data2 = np.random.choice(additional_data2, size=additional_data_count,
+    #                                    replace=len(additional_data2) < additional_data_count).tolist()
+    # additional_data_count = 5000
+    # additional_data3 = glob.glob("../datasets/text_documents/**/*.*", recursive=True)
+    # additional_data3 = np.random.choice(additional_data3, size=additional_data_count,
+    #                                    replace=len(additional_data3) < additional_data_count).tolist()
+    # additional_data += additional_data2 + additional_data3
+    # print(f"additional_data count: {len(additional_data)}")
+    additional_data = []
 
     dataloader = DataLoader(
-        ImageDataset("../datasets/DIV2K", hr_shape=hr_shape,
-                     extra_files=additional_data),
+        ImageDataset("../datasets/img_align_celeba", hr_shape=hr_shape,
+                     extra_files=additional_data,
+                     num_upsample=opt.num_upsample),
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=opt.n_cpu,
@@ -330,7 +338,7 @@ if __name__ == "__main__":
             if global_steps % opt.sample_interval == 0:
                 writer.add_images("gen_hr", inv_normalize(torch.clamp(gen_hr, -1, 1), TANH_MEAN, TANH_STD),
                                   global_steps)
-                writer.add_images("imgs_lr", inv_normalize(F.interpolate(imgs_lr, scale_factor=4), TANH_MEAN, TANH_STD),
+                writer.add_images("imgs_lr", inv_normalize(F.interpolate(imgs_lr, scale_factor=2 ** opt.num_upsample), TANH_MEAN, TANH_STD),
                                   global_steps)
                 writer.add_images("imgs_hr", inv_normalize(imgs_hr, TANH_MEAN, TANH_STD),
                                   global_steps)

@@ -31,23 +31,23 @@ class RandomRotate90:
     def __call__(self, x):
         angle = random.choice(self.angles)
         return TF.rotate(x, angle,
-                         interpolation=transforms.InterpolationMode.BICUBIC,
+                         interpolation=Image.BICUBIC,
                          expand=True)
 
 
 class ImageDataset(Dataset):
-    def __init__(self, root, hr_shape, extra_files=[]):
+    def __init__(self, root, hr_shape, extra_files=[], num_upsample=2):
         h, w = hr_shape
-        lr_size = (h//4, w//4)
+        lr_size = (h//(2 ** num_upsample), w//(2 ** num_upsample))
 
         self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
-            RandomRotate90(),
+            # RandomRotate90(),
             transforms.RandomApply([
                 transforms.RandomResizedCrop(size=(h, w),
-                                             scale=(0.08, 1.0),
+                                             scale=(0.8, 1.0),
                                              ratio=(3./4., 4./3.),
-                                             interpolation=transforms.InterpolationMode.BICUBIC),
+                                             interpolation=Image.BICUBIC),
             ], p=0.5),
             transforms.RandomCrop(size=(h, w),
                                   pad_if_needed=True)
@@ -55,13 +55,13 @@ class ImageDataset(Dataset):
         self.transform_lr = transforms.Compose([
             transforms.RandomChoice([
                 transforms.Resize(size=lr_size,
-                                  interpolation=transforms.InterpolationMode.BICUBIC),
+                                  interpolation=Image.BICUBIC),
                 transforms.Resize(size=lr_size,
-                                  interpolation=transforms.InterpolationMode.BILINEAR),
+                                  interpolation=Image.BILINEAR),
                 transforms.Resize(size=lr_size,
-                                  interpolation=transforms.InterpolationMode.NEAREST),
+                                  interpolation=Image.NEAREST),
                 transforms.Resize(size=lr_size,
-                                  interpolation=transforms.InterpolationMode.LANCZOS),
+                                  interpolation=Image.LANCZOS),
             ])
         ])
         self.to_tensor = transforms.Compose([
@@ -69,7 +69,7 @@ class ImageDataset(Dataset):
             transforms.Normalize(TANH_MEAN, TANH_STD)
         ])
 
-        self.files = sorted(glob.glob(root + "/**/*.*", recursive=True)) * 50
+        self.files = sorted(glob.glob(root + "/**/*.*", recursive=True))
         print(f"Found {len(self)} files in dir: {root}")
         if extra_files:
             self.files += extra_files
